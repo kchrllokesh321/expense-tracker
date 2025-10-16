@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expense-app-deployment
+  labels:
+    app: expense-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: expense-app
+  template:
+    metadata:
+      labels:
+        app: expense-app
+    spec:
+      imagePullSecrets:
+        - name: kube-secret   # 👈 must be here (same level as containers)
+      containers:
+        - name: expense-app
+          image: lokesh86186/react:v1
+          ports:
+            - containerPort: 80
+              
+        

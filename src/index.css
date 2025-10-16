@@ -1,0 +1,265 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The Expense Tracker Design System - CRED-inspired premium dark theme
+All colors MUST be HSL. Neumorphic design with soft shadows and depth.
+*/
+
+@layer base {
+  :root {
+    /* Primary dark theme colors */
+    --background: 210 3% 11%; /* #1C1C1E deep charcoal */
+    --foreground: 0 0% 95%; /* Light text */
+
+    --card: 210 3% 17%; /* #2C2C2E component background */
+    --card-foreground: 0 0% 95%;
+
+    --popover: 210 3% 17%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 140 60% 70%; /* Soft green for positive amounts */
+    --primary-foreground: 210 3% 11%;
+
+    --secondary: 210 3% 20%; /* Slightly lighter for buttons */
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 210 3% 25%;
+    --muted-foreground: 0 0% 65%;
+
+    --accent: 35 80% 70%; /* Soft orange for debts */
+    --accent-foreground: 210 3% 11%;
+
+    --destructive: 0 70% 60%;
+    --destructive-foreground: 0 0% 95%;
+
+    --border: 210 3% 25%;
+    --input: 210 3% 20%;
+    --ring: 140 60% 70%;
+
+    --radius: 1rem; /* Rounded for neumorphic feel */
+
+    /* Custom neumorphic shadows */
+    --shadow-light: 0 0% 25%; /* Lighter shadow for depth */
+    --shadow-dark: 0 0% 8%; /* Darker shadow for depth */
+    --shadow-inset-light: 0 0% 20%;
+    --shadow-inset-dark: 0 0% 5%;
+
+    /* Income/expense colors */
+    --income: 140 60% 70%; /* Soft green */
+    --expense: 0 70% 60%; /* Soft red */
+    --debt: 35 80% 70%; /* Soft orange */
+
+    /* Typography weights for Poppins */
+    --font-display: 700; /* Bold for main balance */
+    --font-title: 600; /* Semi-bold for screen titles */
+    --font-card: 500; /* Medium for card titles */
+    --font-body: 400; /* Regular for body text */
+    --font-button: 500; /* Medium for buttons */
+
+    /* Sidebar colors */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-poppins;
+    /* Mobile optimizations */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Prevent zoom on input focus on iOS */
+    font-size: 16px;
+  }
+  
+  /* Mobile keyboard handling */
+  body.keyboard-open {
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  /* Keyboard-aware modal positioning */
+  .keyboard-modal {
+    transition: transform 0.3s ease-in-out;
+  }
+  
+  .keyboard-modal.keyboard-open {
+    transform: translateY(-50px);
+  }
+  
+  /* Input focus styles for better visibility */
+  input:focus,
+  textarea:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--ring));
+  }
+  
+  /* Smooth input transitions */
+  input,
+  textarea {
+    transition: all 0.2s ease-in-out;
+  }
+  
+  /* Prevent zoom on input focus on iOS */
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  textarea {
+    font-size: 16px !important;
+  }
+  
+  /* Prevent text selection on mobile for better UX */
+  .no-select {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+  
+  /* Better touch targets for mobile */
+  button,
+  a,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Smooth scrolling for mobile */
+  html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Safe area handling for notched devices */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-area-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 16px);
+  }
+  
+  .safe-area-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .safe-area-right {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Enhanced bottom navigation handling */
+  .bottom-nav-container {
+    padding-bottom: max(env(safe-area-inset-bottom), 16px);
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Ensure content doesn't overlap with bottom navigation */
+  .main-content-bottom-padding {
+    padding-bottom: calc(80px + max(env(safe-area-inset-bottom), 16px));
+  }
+
+  /* Clean component styles without shadows */
+  .clean-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+  }
+
+  .clean-pressed {
+    background: hsl(var(--muted));
+  }
+
+  .clean-sm {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* Typography classes */
+  .text-display {
+    font-size: 2.5rem;
+    font-weight: var(--font-display);
+    line-height: 1.2;
+  }
+
+  .text-title {
+    font-size: 1.5rem;
+    font-weight: var(--font-title);
+    line-height: 1.3;
+  }
+
+  .text-card {
+    font-size: 1.125rem;
+    font-weight: var(--font-card);
+    line-height: 1.4;
+  }
+
+  .text-body {
+    font-size: 1rem;
+    font-weight: var(--font-body);
+    line-height: 1.5;
+  }
+
+  .text-subtext {
+    font-size: 0.875rem;
+    font-weight: var(--font-body);
+    line-height: 1.4;
+  }
+
+  .text-button {
+    font-size: 1rem;
+    font-weight: var(--font-button);
+    line-height: 1;
+  }
+}
