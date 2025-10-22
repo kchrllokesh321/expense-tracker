@@ -57,12 +57,12 @@ jobs:
         sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest|g" deployment.yaml
         
         # Copy YAMLs to server
-        scp -o StrictHostKeyChecking=no secret.yaml deployment.yaml service.yaml ubuntu@${{ env.KUBE_SERVER }}:/tmp/
+        scp -o StrictHostKeyChecking=no kube-secret.yaml deployment.yaml service.yaml ubuntu@${{ env.KUBE_SERVER }}:/tmp/
 
         # Apply resources
         ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
           echo "Applying Kubernetes manifests..."
-          microk8s kubectl apply -f /tmp/secret.yaml
+          microk8s kubectl apply -f /tmp/kube-secret.yaml
           microk8s kubectl apply -f /tmp/deployment.yaml
           microk8s kubectl apply -f /tmp/service.yaml
           
