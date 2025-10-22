@@ -41,6 +41,14 @@ ssh -o StrictHostKeyChecking=no root@${SERVER_IP} << 'EOF'
     
     echo "💻 Service Details:"
     kubectl describe service expense-app-service | grep -E "(Port|NodePort|Endpoints)"
+    echo ""
+    
+    echo "🌐 Minikube Service URL (if available):"
+    if command -v minikube &> /dev/null; then
+        minikube service expense-app-service --url 2>/dev/null || echo "Minikube not available or service not ready"
+    else
+        echo "Minikube not installed"
+    fi
 EOF
 
 echo "✅ Health check completed!"

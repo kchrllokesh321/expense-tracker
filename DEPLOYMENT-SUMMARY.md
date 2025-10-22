@@ -3,16 +3,21 @@
 ## 📁 Files Created/Modified
 
 ### GitHub Actions Workflow
-- `.github/workflows/build-and-deploy.yml` - Main CI/CD pipeline
+- `.github/workflows/build-and-deploy.yml` - Main CI/CD pipeline (updated for simple naming)
 - `.github/workflows/build-and-deploy-kubeconfig.yml.disabled` - Alternative method (disabled)
 
+### Kubernetes Manifests
+- `k8s-manifest.yaml` - **NEW** Combined manifest (secret + deployment + service)
+
 ### Documentation
-- `CI-CD-SETUP.md` - Complete setup guide
+- `CI-CD-SETUP.md` - Complete setup guide (updated for minikube)
 - `DEPLOYMENT-SUMMARY.md` - This summary
 
 ### Helper Scripts
-- `deploy.sh` - Manual deployment script
-- `health-check.sh` - Application health check
+- `deploy.sh` - Manual deployment script (updated for combined manifest)
+- `health-check.sh` - Application health check (updated for minikube)
+- `build-docker.sh` - **NEW** Docker build and push script
+- `minikube-helpers.sh` - **NEW** Minikube-specific commands
 
 ### Modified Files
 - `deployment.yaml` - Fixed secret name and updated image tag
@@ -30,19 +35,34 @@ Configure these in your GitHub repository (`Settings` > `Secrets and variables` 
 ### Automatic Deployment (Push to main/master)
 1. GitHub Actions triggers on push
 2. Builds React app with npm
-3. Creates Docker image with automatic tagging
-4. Pushes to Docker Hub (`lokesh86186/react`)
+3. Creates Docker image with simple naming (`react:v1`)
+4. Pushes to Docker Hub (`lokesh86186/react:v1`)
 5. SSH into server (45.129.86.68)
-6. Applies Kubernetes manifests
-7. Waits for deployment completion
+6. Applies combined Kubernetes manifest
+7. Waits for deployment completion and shows minikube service URL
 
 ### Manual Deployment
 ```bash
+# Build and push Docker image
+./build-docker.sh v2
+
 # Deploy with default settings
 ./deploy.sh
 
 # Deploy specific version to specific server
-./deploy.sh v1.2.3 45.129.86.68
+./deploy.sh v2 45.129.86.68
+```
+
+### Minikube Management
+```bash
+# Apply manifest
+./minikube-helpers.sh apply
+
+# Get service URL
+./minikube-helpers.sh url
+
+# Check status
+./minikube-helpers.sh status
 ```
 
 ### Health Check
@@ -56,11 +76,11 @@ Configure these in your GitHub repository (`Settings` > `Secrets and variables` 
 
 ## 🏷️ Image Tags
 
-The workflow creates these Docker image tags:
-- `latest` (main/master branch only)
-- `main-<commit-sha>` or `master-<commit-sha>`
-- `<branch-name>` (feature branches)
-- `pr-<number>` (pull requests)
+The workflow uses simple Docker image naming:
+- `react:v1` (main/master branch)
+- `react:main-v<commit-sha>` or `react:master-v<commit-sha>`
+- `react:<branch-name>` (feature branches)
+- `react:pr-<number>` (pull requests)
 
 ## 🔍 Monitoring
 
@@ -86,10 +106,11 @@ kubectl logs -l app=expense-app
 ## 🎯 Next Steps
 
 1. Configure the GitHub repository secrets
-2. Add your SSH public key to the server
-3. Push code to main/master branch
-4. Monitor deployment in GitHub Actions
-5. Access your app via the NodePort service
+2. Add your SSH public key to the server (45.129.86.68)
+3. Ensure minikube is running on your server
+4. Push code to main/master branch
+5. Monitor deployment in GitHub Actions
+6. Access your app via: `http://45.129.86.68:30080` or use minikube service URL
 
 ## 🆘 Troubleshooting
 

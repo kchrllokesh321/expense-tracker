@@ -42,22 +42,22 @@ The GitHub Actions workflow (`build-and-deploy.yml`) performs the following step
 4. **Build the React application** (`npm run build`)
 5. **Setup Docker Buildx** for advanced Docker builds
 6. **Login to Docker Hub** using provided credentials
-7. **Build and push Docker image** with automatic tagging
+7. **Build and push Docker image** with simple naming (`react:v1`)
 
 ### Deploy Job (only on main/master branch):
 1. **Setup kubectl** for Kubernetes operations
 2. **Setup SSH connection** to your server
-3. **Update deployment.yaml** with the new Docker image tag
+3. **Update k8s-manifest.yaml** with the new Docker image tag
 4. **Deploy to Kubernetes** via SSH:
-   - Apply secrets, deployment, and service manifests
+   - Apply combined manifest (secrets, deployment, and service)
    - Wait for deployment rollout to complete
-   - Display deployment status
+   - Display deployment status and minikube service URL
 
 ## 🏷️ Docker Image Tagging Strategy
 
-The workflow automatically creates multiple tags:
-- `latest` (only for main/master branch)
-- `main-<commit-sha>` or `master-<commit-sha>`
+The workflow uses simple image naming:
+- `react:v1` (for main/master branch)
+- `react:main-v<commit-sha>` or `react:master-v<commit-sha>`
 - Branch name for feature branches
 - PR number for pull requests
 
@@ -69,23 +69,41 @@ The workflow automatically creates multiple tags:
 
 ## 📁 Kubernetes Manifests
 
-- `kube-secret.yaml`: Docker Hub credentials for image pulling
-- `deployment.yaml`: Application deployment configuration
-- `service.yaml`: Service exposure configuration (NodePort)
+- `k8s-manifest.yaml`: Combined manifest containing:
+  - Secret: Docker Hub credentials for image pulling
+  - Deployment: Application deployment configuration with resource limits
+  - Service: NodePort service (port 30080) for external access
 
 ## 🛠️ Local Development
 
-To test locally:
-
+### Build and Test Docker Image
 ```bash
-# Build the application
-npm run build
+# Build and push Docker image (automated)
+./build-docker.sh v1
 
-# Build Docker image
-docker build -t lokesh86186/react:local .
+# Or manually:
+npm run build
+docker build -t react:v1 .
+docker tag react:v1 lokesh86186/react:v1
+docker push lokesh86186/react:v1
 
 # Run locally
-docker run -p 8080:80 lokesh86186/react:local
+docker run -p 8080:80 react:v1
+```
+
+### Minikube Commands
+```bash
+# Apply manifest to minikube
+./minikube-helpers.sh apply
+
+# Get service URL
+./minikube-helpers.sh url
+
+# Check status
+./minikube-helpers.sh status
+
+# View logs
+./minikube-helpers.sh logs
 ```
 
 ## 🐛 Troubleshooting
@@ -110,9 +128,16 @@ docker run -p 8080:80 lokesh86186/react:local
 
 Check deployment status on your server:
 ```bash
+# Using helper script
+./health-check.sh
+
+# Or manually:
 kubectl get pods -l app=expense-app
 kubectl logs -l app=expense-app
 kubectl describe deployment expense-app-deployment
+
+# For minikube:
+./minikube-helpers.sh status
 ```
 
 ## 🔒 Security Notes
@@ -125,5 +150,16 @@ kubectl describe deployment expense-app-deployment
 ## 🎯 Access Your Application
 
 After successful deployment, your application will be accessible via:
+
+### Minikube:
+```bash
+# Get the service URL
+./minikube-helpers.sh url
+# or
+minikube service expense-app-service --url
+```
+
+### Standard Kubernetes:
 - Server IP: `45.129.86.68`
-- Port: The NodePort assigned by Kubernetes (check with `kubectl get svc expense-app-service`)
+- Port: `30080` (NodePort)
+- URL: `http://45.129.86.68:30080`

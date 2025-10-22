@@ -7,9 +7,9 @@ set -e
 
 # Configuration
 DOCKER_USERNAME="lokesh86186"
-IMAGE_NAME="lokesh86186/react"
+IMAGE_NAME="react"
 DEFAULT_SERVER="45.129.86.68"
-DEFAULT_TAG="latest"
+DEFAULT_TAG="v1"
 
 # Parse arguments
 IMAGE_TAG=${1:-$DEFAULT_TAG}
@@ -20,20 +20,18 @@ echo "📦 Image: ${IMAGE_NAME}:${IMAGE_TAG}"
 echo "🎯 Server: ${SERVER_IP}"
 echo "=========================="
 
-# Update deployment.yaml with the specified image tag
-echo "📝 Updating deployment.yaml..."
-sed -i.bak "s|image:.*|image: ${IMAGE_NAME}:${IMAGE_TAG}|g" deployment.yaml
+# Update k8s-manifest.yaml with the specified image tag
+echo "📝 Updating k8s-manifest.yaml..."
+sed -i.bak "s|image: react:.*|image: ${IMAGE_NAME}:${IMAGE_TAG}|g" k8s-manifest.yaml
 
-# Copy files to server and apply
-echo "📤 Copying manifests to server..."
-scp -o StrictHostKeyChecking=no kube-secret.yaml deployment.yaml service.yaml root@${SERVER_IP}:/tmp/
+# Copy manifest to server and apply
+echo "📤 Copying manifest to server..."
+scp -o StrictHostKeyChecking=no k8s-manifest.yaml root@${SERVER_IP}:/tmp/
 
-echo "🔄 Applying Kubernetes manifests..."
+echo "🔄 Applying Kubernetes manifest..."
 ssh -o StrictHostKeyChecking=no root@${SERVER_IP} << EOF
-    echo "Applying Kubernetes manifests..."
-    kubectl apply -f /tmp/kube-secret.yaml
-    kubectl apply -f /tmp/deployment.yaml
-    kubectl apply -f /tmp/service.yaml
+    echo "Applying combined Kubernetes manifest..."
+    kubectl apply -f /tmp/k8s-manifest.yaml
     
     echo "Waiting for deployment to be ready..."
     kubectl rollout status deployment/expense-app-deployment --timeout=300s
@@ -42,13 +40,19 @@ ssh -o StrictHostKeyChecking=no root@${SERVER_IP} << EOF
     kubectl get pods -l app=expense-app
     kubectl get services expense-app-service
     
+    # Show minikube service URL if available
+    if command -v minikube &> /dev/null; then
+        echo "Minikube service URL:"
+        minikube service expense-app-service --url
+    fi
+    
     # Cleanup
-    rm -f /tmp/kube-secret.yaml /tmp/deployment.yaml /tmp/service.yaml
+    rm -f /tmp/k8s-manifest.yaml
 EOF
 
-# Restore original deployment.yaml
-echo "🔄 Restoring original deployment.yaml..."
-mv deployment.yaml.bak deployment.yaml
+# Restore original k8s-manifest.yaml
+echo "🔄 Restoring original k8s-manifest.yaml..."
+mv k8s-manifest.yaml.bak k8s-manifest.yaml
 
 echo "✅ Deployment completed successfully!"
 echo "🌐 Your application should be accessible via the NodePort service"
@@ -57,3 +61,6 @@ echo "🌐 Your application should be accessible via the NodePort service"
 echo ""
 echo "To check the service endpoint, run:"
 echo "ssh root@${SERVER_IP} 'kubectl get svc expense-app-service'"
+echo ""
+echo "For minikube, get the service URL with:"
+echo "ssh root@${SERVER_IP} 'minikube service expense-app-service --url'"
