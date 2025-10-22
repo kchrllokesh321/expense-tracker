@@ -1,136 +1,84 @@
-name: Build Docker Image and Deploy to Kubernetes
+name: Build and Deploy to MicroK8s
 
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 env:
-  DOCKER_REGISTRY: docker.io
   DOCKER_USERNAME: lokesh86186
   IMAGE_NAME: react
-  KUBE_SERVER: 45.129.86.68
+  KUBE_SERVER: 45.128.86.68
+  DEPLOYMENT_NAME: react-deployment
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-      image-digest: ${{ steps.build.outputs.digest }}
-    
+
     steps:
+    # 1️⃣ Checkout repo
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Build application
-      run: npm run build
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
+    # 2️⃣ Login to Docker Hub
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
-        registry: ${{ env.DOCKER_REGISTRY }}
         username: ${{ env.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.IMAGE_NAME }}
-        tags: |
-          type=raw,value=v1,enable={{is_default_branch}}
-          type=raw,value=v{{sha}},prefix={{branch}}-
-          type=ref,event=branch
-          type=ref,event=pr
-
+    # 3️⃣ Build and push Docker image
     - name: Build and push Docker image
-      id: build
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      run: |
+        docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest .
+        docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
 
-  deploy-to-kubernetes:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'latest'
-
+    # 4️⃣ Setup SSH key
     - name: Setup SSH key
       uses: webfactory/ssh-agent@v0.9.0
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+    # 5️⃣ Add server to known hosts
     - name: Add server to known hosts
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
 
-    - name: Update deployment image
+    # 6️⃣ Deploy to MicroK8s
+    - name: Deploy to MicroK8s
       run: |
-        # Extract the version tag from the build step
-        IMAGE_TAG=$(echo "${{ needs.build-and-push.outputs.image-tag }}" | grep -E "(v1|main-|master-)" | head -1)
-        echo "Using image tag: $IMAGE_TAG"
-        
-        # Update the k8s-manifest.yaml with the new image
-        sed -i "s|image: react:.*|image: $IMAGE_TAG|g" k8s-manifest.yaml
+        # Update deployment.yaml image
+        sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest|g" deployment.yaml
 
-    - name: Deploy to Kubernetes
-      run: |
-        # Copy the combined manifest to server and apply
-        scp -o StrictHostKeyChecking=no k8s-manifest.yaml root@${{ env.KUBE_SERVER }}:/tmp/
-        
+        # Copy YAML files to server
+        scp -o StrictHostKeyChecking=no secret.yaml deployment.yaml service.yaml root@${{ env.KUBE_SERVER }}:/tmp/
+
+        # Apply all resources
         ssh -o StrictHostKeyChecking=no root@${{ env.KUBE_SERVER }} << 'EOF'
-          # Apply combined Kubernetes manifest
-          kubectl apply -f /tmp/k8s-manifest.yaml
-          
-          # Wait for deployment to be ready
-          kubectl rollout status deployment/expense-app-deployment --timeout=300s
-          
-          # Show deployment status
-          kubectl get pods -l app=expense-app
-          kubectl get services expense-app-service
-          
-          # Show minikube service URL
-          if command -v minikube &> /dev/null; then
-            echo "Minikube service URL:"
-            minikube service expense-app-service --url
-          fi
-          
-          # Cleanup temp files
-          rm -f /tmp/k8s-manifest.yaml
+          echo "Applying Kubernetes secrets..."
+          microk8s kubectl apply -f /tmp/secret.yaml
+
+          echo "Applying deployment..."
+          microk8s kubectl apply -f /tmp/deployment.yaml
+
+          echo "Applying service..."
+          microk8s kubectl apply -f /tmp/service.yaml
+
+          echo "Waiting for deployment rollout..."
+          microk8s kubectl rollout status deployment/react-deployment --timeout=300s
+
+          echo "Listing pods and services..."
+          microk8s kubectl get pods -l app=react-app
+          microk8s kubectl get svc react-service
+
+          echo "Cleaning up temporary files..."
+          rm -f /tmp/secret.yaml /tmp/deployment.yaml /tmp/service.yaml
         EOF
 
+    # 7️⃣ Deployment summary
     - name: Deployment Summary
       run: |
         echo "🚀 Deployment completed successfully!"
-        echo "📦 Docker Image: ${{ needs.build-and-push.outputs.image-tag }}"
-        echo "🎯 Target Server: ${{ env.KUBE_SERVER }}"
-        echo "✅ Application should be accessible via the NodePort service"
+        echo "📦 Docker Image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
+        echo "🎯 Server: ${{ env.KUBE_SERVER }}"
