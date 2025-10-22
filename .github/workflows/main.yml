@@ -8,7 +8,7 @@ on:
 env:
   DOCKER_USERNAME: lokesh86186
   IMAGE_NAME: react
-  KUBE_SERVER: 45.128.86.68
+  KUBE_SERVER: 45.129.86.68
   DEPLOYMENT_NAME: react-deployment
 
 jobs:
