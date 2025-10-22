@@ -33,7 +33,7 @@ jobs:
         docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest .
         docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
 
-    # 4️⃣ Setup SSH key
+    # 4️⃣ Setup SSH key for deployment
     - name: Setup SSH key
       uses: webfactory/ssh-agent@v0.9.0
       with:
@@ -45,33 +45,34 @@ jobs:
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
 
+    # 🧩 NEW STEP — Test SSH Connection
+    - name: Test SSH connection to server
+      run: |
+        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} "echo '✅ SSH connection successful!'"
+
     # 6️⃣ Deploy to MicroK8s
     - name: Deploy to MicroK8s
       run: |
-        # Update deployment.yaml image
+        # Update deployment image
         sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest|g" deployment.yaml
+        
+        # Copy YAMLs to server
+        scp -o StrictHostKeyChecking=no secret.yaml deployment.yaml service.yaml ubuntu@${{ env.KUBE_SERVER }}:/tmp/
 
-        # Copy YAML files to server
-        scp -o StrictHostKeyChecking=no secret.yaml deployment.yaml service.yaml root@${{ env.KUBE_SERVER }}:/tmp/
-
-        # Apply all resources
-        ssh -o StrictHostKeyChecking=no root@${{ env.KUBE_SERVER }} << 'EOF'
-          echo "Applying Kubernetes secrets..."
+        # Apply resources
+        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
+          echo "Applying Kubernetes manifests..."
           microk8s kubectl apply -f /tmp/secret.yaml
-
-          echo "Applying deployment..."
           microk8s kubectl apply -f /tmp/deployment.yaml
-
-          echo "Applying service..."
           microk8s kubectl apply -f /tmp/service.yaml
-
+          
           echo "Waiting for deployment rollout..."
           microk8s kubectl rollout status deployment/react-deployment --timeout=300s
-
+          
           echo "Listing pods and services..."
           microk8s kubectl get pods -l app=react-app
           microk8s kubectl get svc react-service
-
+          
           echo "Cleaning up temporary files..."
           rm -f /tmp/secret.yaml /tmp/deployment.yaml /tmp/service.yaml
         EOF
@@ -80,5 +81,5 @@ jobs:
     - name: Deployment Summary
       run: |
         echo "🚀 Deployment completed successfully!"
-        echo "📦 Docker Image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
+        echo "📦 Image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
         echo "🎯 Server: ${{ env.KUBE_SERVER }}"
