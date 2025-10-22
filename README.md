@@ -144,6 +144,29 @@ Edit `capacitor.config.ts` to customize:
 - **UI Components**: Radix UI + shadcn/ui
 - **Build Tool**: Vite
 
+## 🚢 CI/CD & Deployment
+
+This project includes automated CI/CD pipeline using GitHub Actions that:
+- Builds the React application
+- Creates Docker images
+- Deploys to Kubernetes cluster
+
+### Quick Setup
+1. Configure GitHub repository secrets (see [CI-CD-SETUP.md](./CI-CD-SETUP.md))
+2. Push to main/master branch to trigger deployment
+3. Monitor deployment via GitHub Actions
+
+### Manual Deployment
+```bash
+# Deploy specific image tag
+./deploy.sh v1.2.3
+
+# Check application health
+./health-check.sh
+```
+
+For detailed setup instructions, see [CI-CD-SETUP.md](./CI-CD-SETUP.md).
+
 ## 📄 License
 
 This project is licensed under the MIT License.

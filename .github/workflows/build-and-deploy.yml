@@ -1,0 +1,135 @@
+name: Build Docker Image and Deploy to Kubernetes
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_USERNAME: lokesh86186
+  IMAGE_NAME: lokesh86186/react
+  KUBE_SERVER: 45.129.86.68
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build application
+      run: npm run build
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-to-kubernetes:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Setup SSH key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add server to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
+
+    - name: Update deployment image
+      run: |
+        # Extract the latest tag from the build step
+        IMAGE_TAG=$(echo "${{ needs.build-and-push.outputs.image-tag }}" | grep -E "(latest|main-|master-)" | head -1)
+        echo "Using image tag: $IMAGE_TAG"
+        
+        # Update the deployment.yaml with the new image
+        sed -i "s|image:.*|image: $IMAGE_TAG|g" deployment.yaml
+
+    - name: Deploy to Kubernetes
+      run: |
+        # Copy kubectl config from server (assuming kubectl is configured on the server)
+        ssh -o StrictHostKeyChecking=no root@${{ env.KUBE_SERVER }} "kubectl config view --raw" > ~/.kube/config || true
+        
+        # Alternative: Apply directly on the server via SSH
+        scp -o StrictHostKeyChecking=no kube-secret.yaml deployment.yaml service.yaml root@${{ env.KUBE_SERVER }}:/tmp/
+        
+        ssh -o StrictHostKeyChecking=no root@${{ env.KUBE_SERVER }} << 'EOF'
+          # Apply Kubernetes manifests
+          kubectl apply -f /tmp/kube-secret.yaml
+          kubectl apply -f /tmp/deployment.yaml
+          kubectl apply -f /tmp/service.yaml
+          
+          # Wait for deployment to be ready
+          kubectl rollout status deployment/expense-app-deployment --timeout=300s
+          
+          # Show deployment status
+          kubectl get pods -l app=expense-app
+          kubectl get services expense-app-service
+          
+          # Cleanup temp files
+          rm -f /tmp/kube-secret.yaml /tmp/deployment.yaml /tmp/service.yaml
+        EOF
+
+    - name: Deployment Summary
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "📦 Docker Image: ${{ needs.build-and-push.outputs.image-tag }}"
+        echo "🎯 Target Server: ${{ env.KUBE_SERVER }}"
+        echo "✅ Application should be accessible via the NodePort service"
