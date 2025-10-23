@@ -1,0 +1,97 @@
+name: Build and Deploy to MicroK8s
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  DOCKER_USERNAME: lokesh86186
+  IMAGE_NAME: react
+  KUBE_SERVER: 45.129.86.68
+  DEPLOYMENT_NAME: react-deployment
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1️⃣ Checkout repo
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2️⃣ Log in to Docker Hub
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # 3️⃣ Build & push Docker image with commit tag
+    - name: Build and push Docker image
+      run: |
+        COMMIT_ID=$(echo ${{ github.sha }} | cut -c1-7)
+        IMAGE_TAG=${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$COMMIT_ID
+
+        echo "Building image: $IMAGE_TAG"
+        docker build -t $IMAGE_TAG .
+        docker push $IMAGE_TAG
+
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+    # 4️⃣ Setup SSH and deploy to MicroK8s server
+    - name: Deploy to MicroK8s
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add server and deploy app
+      run: |
+        ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
+
+        # Copy manifests to server
+        scp -o StrictHostKeyChecking=no deployment.yaml service.yaml ubuntu@${{ env.KUBE_SERVER }}:/tmp/
+
+        # Run everything on server
+        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << EOF
+          set -e
+
+          echo "🚀 Updating image tag in deployment.yaml"
+          sed -i "s|image:.*|image: ${{ env.IMAGE_TAG }}|g" /tmp/deployment.yaml
+
+          echo "📦 Applying manifests..."
+          microk8s kubectl apply -f /tmp/deployment.yaml
+          microk8s kubectl apply -f /tmp/service.yaml
+
+          echo "⏳ Waiting for rollout..."
+          microk8s kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=300s
+
+          echo "✅ Listing resources..."
+          microk8s kubectl get pods -l app=react-app
+          microk8s kubectl get svc react-service
+
+          echo "🛠 Building mobile app..."
+          cd /home/ubuntu/mobile-app   # <-- path to mobile project on server
+          npm install
+          npm run build
+
+          echo "📦 Packaging app..."
+          tar -czf /tmp/mobile-app-${{ github.sha }}.tar.gz build/
+        EOF
+
+        # Download built app to GitHub runner
+        scp -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }}:/tmp/mobile-app-${{ github.sha }}.tar.gz ./mobile-app.tar.gz
+
+    # 5️⃣ Upload built app as artifact
+    - name: Upload mobile app artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mobile-app
+        path: ./mobile-app.tar.gz
+
+    # 6️⃣ Deployment summary
+    - name: Summary
+      run: |
+        echo "✅ Deployment completed!"
+        echo "Image: ${{ env.IMAGE_TAG }}"
+        echo "Server: ${{ env.KUBE_SERVER }}"
