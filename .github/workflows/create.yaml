@@ -1,8 +1,9 @@
-name: Build Android APK
+name: Rebuild Android Project and Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -10,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup NodeJS
@@ -18,31 +19,40 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install Project Dependencies
         run: npm ci
 
-      - name: Build web assets
+      - name: Build Web App
         run: npm run build
 
-      - name: Sync Capacitor Android project
-        run: npx cap sync android
-
-      # FIX: Force Java 17 (avoid JDK 21 errors)
-      - name: Setup JDK 17
+      - name: Setup Java 17 (Zulu Distribution)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
           cache: 'gradle'
 
-      - name: Set Gradlew permissions
+      - name: Delete Old Android Folder
+        run: |
+          rm -rf android
+          echo "✅ Old Android folder deleted."
+
+      - name: Recreate Android Platform for Capacitor
+        run: |
+          npx cap add android
+          echo "✅ Android folder regenerated."
+
+      - name: Sync Capacitor Assets and Plugins
+        run: npx cap sync android
+
+      - name: Set Gradle Permissions
         run: chmod +x android/gradlew
 
-      - name: Build APK
+      - name: Build Debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --info --scan
+        run: ./gradlew assembleDebug
 
-      - name: Upload APK artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug.apk
