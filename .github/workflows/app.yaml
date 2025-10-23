@@ -9,54 +9,70 @@ env:
   DOCKER_USERNAME: lokesh86186
   IMAGE_NAME: react
   KUBE_SERVER: 45.129.86.68
-  DEPLOYMENT_FILE: app-deployment.yaml
-  SERVICE_FILE: app-service.yaml
+  DEPLOYMENT_FILE: deployment.yaml
+  SERVICE_FILE: service.yaml
   SECRET_FILE: kube-secret.yaml
-  APP_LABEL: react-app
-  DEPLOYMENT_NAME: react-deployment
+  APP_LABEL: expense-app
+  DEPLOYMENT_NAME: expense-app-deployment
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
+    # 1️⃣ Checkout code
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2️⃣ Install dependencies (Node + Java + Gradle)
-    - name: Setup environment for APK build
+    # 2️⃣ Setup Android SDK (for APK build)
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    # 3️⃣ Ensure SDK path exists for Gradle
+    - name: Create local.properties
+      run: |
+        echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+    # 4️⃣ Install dependencies
+    - name: Install dependencies
       run: |
         sudo apt update -y
         sudo apt install -y openjdk-17-jdk gradle
         npm install -g yarn
         yarn install
 
-    # 3️⃣ Build Android APK
+    # 5️⃣ (Optional) Ensure Gradle version is stable
+    - name: Use Gradle 8.5
+      run: |
+        cd android
+        ./gradlew wrapper --gradle-version 8.5
+
+    # 6️⃣ Build Android APK
     - name: Build Android APK
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleRelease
+        ./gradlew clean
+        ./gradlew assembleRelease --no-daemon --warning-mode all
         cd ..
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
 
-    # 4️⃣ Upload APK as GitHub Artifact (for direct download)
+    # 7️⃣ Upload APK as artifact for direct download
     - name: Upload APK to GitHub Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
         path: ${{ env.APK_PATH }}
 
-    # 5️⃣ Login to Docker Hub
+    # 8️⃣ Log in to Docker Hub
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ env.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 6️⃣ Build and push Docker image (tagged by commit ID)
-    - name: Build & Push Docker image
+    # 9️⃣ Build & push Docker image (tagged with commit ID)
+    - name: Build and Push Docker image
       run: |
         COMMIT_ID=$(echo $GITHUB_SHA | cut -c1-7)
         IMAGE_TAG=${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$COMMIT_ID
@@ -64,55 +80,58 @@ jobs:
         docker push $IMAGE_TAG
         echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-    # 7️⃣ Setup SSH key for remote access
+    # 🔟 Setup SSH key
     - name: Setup SSH key
       uses: webfactory/ssh-agent@v0.9.0
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    # 8️⃣ Add server to known hosts
+    # 11️⃣ Add server to known hosts
     - name: Add server to known hosts
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
 
-    # 9️⃣ Copy manifests and APK to server
-    - name: Copy manifests and APK to server
+    # 12️⃣ Copy manifests & APK to server
+    - name: Copy manifests & APK to server
       run: |
         scp -o StrictHostKeyChecking=no \
           ${{ env.SECRET_FILE }} ${{ env.DEPLOYMENT_FILE }} ${{ env.SERVICE_FILE }} \
           ${{ env.APK_PATH }} \
           ubuntu@${{ env.KUBE_SERVER }}:/tmp/
 
-    # 🔟 Apply manifests in MicroK8s and move APK to permanent location
-    - name: Deploy to MicroK8s & Store APK
+    # 13️⃣ Deploy to MicroK8s & store APK
+    - name: Deploy to MicroK8s
       run: |
         ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
-          echo "🚀 Deploying to MicroK8s..."
+          set -e
+          echo "🚀 Starting MicroK8s deployment..."
           mkdir -p ~/apks
           mv /tmp/*.apk ~/apks/
 
-          microk8s kubectl apply -f /tmp/${SECRET_FILE}
-          microk8s kubectl apply -f /tmp/${DEPLOYMENT_FILE}
-          microk8s kubectl apply -f /tmp/${SERVICE_FILE}
+          echo "📦 Applying Kubernetes resources..."
+          microk8s kubectl apply -f /tmp/kube-secret.yaml
+          microk8s kubectl apply -f /tmp/deployment.yaml
+          microk8s kubectl apply -f /tmp/service.yaml
 
-          microk8s kubectl rollout status deployment/${DEPLOYMENT_NAME} --timeout=300s
+          echo "⏳ Waiting for deployment rollout..."
+          microk8s kubectl rollout status deployment/expense-app-deployment --timeout=300s
 
-          echo "✅ Pods:"
-          microk8s kubectl get pods -l app=${APP_LABEL}
-          echo "✅ Services:"
-          microk8s kubectl get svc
+          echo "✅ Listing resources..."
+          microk8s kubectl get pods -l app=react-app
+          microk8s kubectl get svc react-service
 
-          echo "🧹 Cleaning temp files..."
-          rm -f /tmp/${SECRET_FILE} /tmp/${DEPLOYMENT_FILE} /tmp/${SERVICE_FILE}
+          echo "🧹 Cleaning up temp files..."
+          rm -f /tmp/*.yaml
+          echo "📲 APK saved at: /home/ubuntu/apks/"
         EOF
 
-    # 11️⃣ Deployment Summary
+    # 14️⃣ Summary
     - name: Deployment Summary
       run: |
-        echo "✅ Deployment complete!"
+        echo "🚀 Deployment complete!"
         echo "📦 Image: $IMAGE_TAG"
         echo "🎯 Server: ${{ env.KUBE_SERVER }}"
-        echo "📲 APK stored at: /home/ubuntu/apks/"
-        echo "➡️ Download using:"
+        echo "📲 APK stored on server at: /home/ubuntu/apks/"
+        echo "➡️ To download to your desktop:"
         echo "scp ubuntu@${{ env.KUBE_SERVER }}:/home/ubuntu/apks/*.apk ."
