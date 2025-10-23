@@ -39,9 +39,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 4️⃣ Force Java 17 globally for Gradle
-    - name: Force Java 17 for Gradle
-      run: java -version
+    # 4️⃣ Install Gradle dynamically
+    - name: Setup Gradle
+      uses: gradle/gradle-build-action@v3
+      with:
+        gradle-version: '8.5'
 
     # 5️⃣ Install dependencies
     - name: Install dependencies
@@ -54,16 +56,15 @@ jobs:
     # 7️⃣ Capacitor sync Android
     - name: Capacitor sync
       run: |
-        chmod +x android/gradlew
+        chmod +x android/gradlew || true
         npx cap sync android
 
-    # 8️⃣ Clean Gradle caches and build APK
+    # 8️⃣ Build APK
     - name: Build APK
       run: |
         cd android
-        ./gradlew clean --no-daemon
-        rm -rf ~/.gradle/caches/
-        ./gradlew assembleRelease --no-daemon --warning-mode all
+        gradle clean --no-daemon
+        gradle assembleRelease --no-daemon --warning-mode all
         cd ..
         # Save APK path and short SHA
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
