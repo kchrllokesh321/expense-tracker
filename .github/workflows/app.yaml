@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout code
+    # 1️⃣ Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -41,18 +41,19 @@ jobs:
         npm install -g yarn
         yarn install
 
-    # 5️⃣ (Optional) Ensure Gradle version is stable
+    # 5️⃣ Optional: Force Gradle version
     - name: Use Gradle 8.5
       run: |
         cd android
+        chmod +x gradlew
         ./gradlew wrapper --gradle-version 8.5
 
     # 6️⃣ Build Android APK
     - name: Build Android APK
       run: |
         cd android
-        chmod +x gradlew
-        ./gradlew clean
+        chmod +x gradlew                 # 👈 Fix permission issue
+        ./gradlew clean                  # Clean old builds
         ./gradlew assembleRelease --no-daemon --warning-mode all
         cd ..
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
@@ -118,8 +119,8 @@ jobs:
           microk8s kubectl rollout status deployment/expense-app-deployment --timeout=300s
 
           echo "✅ Listing resources..."
-          microk8s kubectl get pods -l app=react-app
-          microk8s kubectl get svc react-service
+          microk8s kubectl get pods -l app=expense-app
+          microk8s kubectl get svc
 
           echo "🧹 Cleaning up temp files..."
           rm -f /tmp/*.yaml
