@@ -41,10 +41,7 @@ jobs:
 
     # 4️⃣ Force Java 17 globally for Gradle
     - name: Force Java 17 for Gradle
-      run: |
-        echo "JAVA_HOME=/usr/lib/jvm/adoptopenjdk-17-hotspot" >> $GITHUB_ENV
-        export JAVA_HOME=/usr/lib/jvm/adoptopenjdk-17-hotspot
-        java -version
+      run: java -version
 
     # 5️⃣ Install dependencies
     - name: Install dependencies
