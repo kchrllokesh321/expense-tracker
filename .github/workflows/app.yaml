@@ -1,141 +1,123 @@
-name: Build APK & Deploy to MicroK8s
+name: Build, Deploy Android APK & MicroK8s
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 env:
   DOCKER_USERNAME: lokesh86186
-  IMAGE_NAME: react
+  IMAGE_NAME: expense-app
   KUBE_SERVER: 45.129.86.68
   DEPLOYMENT_FILE: deployment.yaml
   SERVICE_FILE: service.yaml
   SECRET_FILE: kube-secret.yaml
   APP_LABEL: expense-app
   DEPLOYMENT_NAME: expense-app-deployment
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
-    - name: Checkout repository
+    # 1️⃣ Checkout code
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2️⃣ Setup Android SDK
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+    # 2️⃣ Set up Node.js
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
 
-    # 3️⃣ Create local.properties
-    - name: Create local.properties
-      run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-
-    # 4️⃣ Install dependencies
+    # 3️⃣ Install dependencies
     - name: Install dependencies
-      run: |
-        sudo apt update -y
-        sudo apt install -y openjdk-17-jdk gradle
-        npm install -g yarn
-        yarn install
+      run: yarn install
 
-    # 5️⃣ Force Gradle version
-    - name: Use Gradle 8.5
+    # 4️⃣ Prepare Capacitor Android
+    - name: Capacitor sync
       run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew wrapper --gradle-version 8.5
-
-    # 6️⃣ Prepare Capacitor Android platform
-    - name: Prepare Capacitor Android
-      run: |
+        # Ensure gradlew is executable
         chmod +x android/gradlew
-        # Ensure Android platform exists
-        npx cap add android || echo "Android platform already added"
-        # Sync plugins and generate cordova variables
+
+        # Sync Capacitor without Cordova (since your app doesn't use Cordova)
         npx cap sync android
 
-    # 7️⃣ Build APK
-    - name: Build Android APK
+    # 5️⃣ Build APK
+    - name: Build APK
       run: |
         cd android
-        chmod +x gradlew
-        ./gradlew clean
-        ./gradlew assembleRelease --no-daemon --warning-mode all
+        ./gradlew clean assembleRelease --no-daemon --warning-mode all
         cd ..
+        # Set APK path as env variable
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
 
-    # 8️⃣ Upload APK as artifact
+    # 6️⃣ Upload APK artifact
     - name: Upload APK
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
-        name: android-apk
+        name: expense-app-apk
         path: ${{ env.APK_PATH }}
 
-    # 9️⃣ Log in to Docker Hub
+    # 7️⃣ Login to Docker Hub
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ env.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 🔟 Build & push Docker image with commit ID tag
-    - name: Build and Push Docker image
+    # 8️⃣ Build and push Docker image with commit SHA
+    - name: Build and push Docker image
       run: |
-        COMMIT_ID=$(echo $GITHUB_SHA | cut -c1-7)
-        IMAGE_TAG=${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$COMMIT_ID
-        docker build -t $IMAGE_TAG .
-        docker push $IMAGE_TAG
-        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        IMAGE_TAG=${GITHUB_SHA::7}
+        docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG .
+        docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG
 
-    # 11️⃣ Setup SSH key
+    # 9️⃣ Setup SSH key for deployment
     - name: Setup SSH key
       uses: webfactory/ssh-agent@v0.9.0
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    # 12️⃣ Add server to known hosts
+    # 🔟 Add server to known hosts
     - name: Add server to known hosts
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
 
-    # 13️⃣ Copy APK and Kubernetes manifests to server
-    - name: Copy APK and manifests
-      run: |
-        scp -o StrictHostKeyChecking=no \
-          ${{ env.SECRET_FILE }} ${{ env.DEPLOYMENT_FILE }} ${{ env.SERVICE_FILE }} \
-          ${{ env.APK_PATH }} \
-          ubuntu@${{ env.KUBE_SERVER }}:/tmp/
-
-    # 14️⃣ Deploy to MicroK8s
+    # 1️⃣1️⃣ Deploy to MicroK8s
     - name: Deploy to MicroK8s
       run: |
-        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
-          set -e
-          mkdir -p ~/apks
-          mv /tmp/*.apk ~/apks/
+        # Replace image in deployment YAML with new commit-tagged image
+        sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA::7}|g" ${{ env.DEPLOYMENT_FILE }}
 
+        # Copy YAMLs to server
+        scp -o StrictHostKeyChecking=no ${{ env.SECRET_FILE }} ${{ env.DEPLOYMENT_FILE }} ${{ env.SERVICE_FILE }} ubuntu@${{ env.KUBE_SERVER }}:/tmp/
+
+        # Apply resources
+        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
+          echo "Applying Kubernetes manifests..."
           microk8s kubectl apply -f /tmp/kube-secret.yaml
           microk8s kubectl apply -f /tmp/deployment.yaml
           microk8s kubectl apply -f /tmp/service.yaml
 
+          echo "Waiting for deployment rollout..."
           microk8s kubectl rollout status deployment/expense-app-deployment --timeout=300s
 
+          echo "Listing pods and services..."
           microk8s kubectl get pods -l app=expense-app
-          microk8s kubectl get svc
+          microk8s kubectl get svc expense-app-service
 
-          rm -f /tmp/*.yaml
-          echo "APK saved at ~/apks/"
+          echo "Cleaning up temporary files..."
+          rm -f /tmp/kube-secret.yaml /tmp/deployment.yaml /tmp/service.yaml
         EOF
 
-    # 15️⃣ Deployment Summary
+    # 1️⃣2️⃣ Deployment summary
     - name: Deployment Summary
       run: |
         echo "🚀 Deployment completed successfully!"
-        echo "📦 Image: $IMAGE_TAG"
-        echo "🎯 Server: ${{ env.KUBE_SERVER }}"
-        echo "📲 APK stored on server at: /home/ubuntu/apks/"
-        echo "➡️ Download APK with:"
-        echo "scp ubuntu@${{ env.KUBE_SERVER }}:/home/ubuntu/apks/*.apk ."
+        echo "📦 APK path: ${{ env.APK_PATH }}"
+        echo "📦 Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA::7}"
+        echo "🎯 MicroK8s server: ${{ env.KUBE_SERVER }}"
