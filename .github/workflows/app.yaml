@@ -1,4 +1,4 @@
-name: Build, Deploy Android APK & MicroK8s
+name: Build, Deploy APK & MicroK8s
 
 on:
   push:
@@ -22,11 +22,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout code
+    # 1️⃣ Checkout repo
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2️⃣ Set up Node.js
+    # 2️⃣ Setup Node.js
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
@@ -36,58 +36,59 @@ jobs:
     - name: Install dependencies
       run: yarn install
 
-    # 4️⃣ Prepare Capacitor Android
+    # 4️⃣ Build web assets for Capacitor
+    - name: Build React web assets
+      run: yarn build
+
+    # 5️⃣ Capacitor sync
     - name: Capacitor sync
       run: |
-        # Ensure gradlew is executable
         chmod +x android/gradlew
-
-        # Sync Capacitor without Cordova (since your app doesn't use Cordova)
         npx cap sync android
 
-    # 5️⃣ Build APK
+    # 6️⃣ Build Android APK
     - name: Build APK
       run: |
         cd android
         ./gradlew clean assembleRelease --no-daemon --warning-mode all
         cd ..
-        # Set APK path as env variable
+        # Save APK path as environment variable
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
 
-    # 6️⃣ Upload APK artifact
+    # 7️⃣ Upload APK artifact with commit SHA
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: expense-app-apk
+        name: expense-app-apk-${{ github.sha::7 }}
         path: ${{ env.APK_PATH }}
 
-    # 7️⃣ Login to Docker Hub
+    # 8️⃣ Login to Docker Hub
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ env.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 8️⃣ Build and push Docker image with commit SHA
+    # 9️⃣ Build and push Docker image with commit SHA
     - name: Build and push Docker image
       run: |
         IMAGE_TAG=${GITHUB_SHA::7}
         docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG .
         docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG
 
-    # 9️⃣ Setup SSH key for deployment
+    # 🔟 Setup SSH key for deployment
     - name: Setup SSH key
       uses: webfactory/ssh-agent@v0.9.0
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    # 🔟 Add server to known hosts
+    # 1️⃣1️⃣ Add server to known hosts
     - name: Add server to known hosts
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
 
-    # 1️⃣1️⃣ Deploy to MicroK8s
+    # 1️⃣2️⃣ Deploy to MicroK8s
     - name: Deploy to MicroK8s
       run: |
         # Replace image in deployment YAML with new commit-tagged image
@@ -106,18 +107,4 @@ jobs:
           echo "Waiting for deployment rollout..."
           microk8s kubectl rollout status deployment/expense-app-deployment --timeout=300s
 
-          echo "Listing pods and services..."
-          microk8s kubectl get pods -l app=expense-app
-          microk8s kubectl get svc expense-app-service
-
-          echo "Cleaning up temporary files..."
-          rm -f /tmp/kube-secret.yaml /tmp/deployment.yaml /tmp/service.yaml
-        EOF
-
-    # 1️⃣2️⃣ Deployment summary
-    - name: Deployment Summary
-      run: |
-        echo "🚀 Deployment completed successfully!"
-        echo "📦 APK path: ${{ env.APK_PATH }}"
-        echo "📦 Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA::7}"
-        echo "🎯 MicroK8s server: ${{ env.KUBE_SERVER }}"
+          echo "Listing pods an
