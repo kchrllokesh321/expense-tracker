@@ -35,28 +35,26 @@ jobs:
           chmod +x android/gradlew || true
           npx cap sync android
 
-      # Get the short commit SHA for tagging
-      - name: Get short commit SHA
-        run: echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
-
-      - name: Build APK
+      # Build, extract, and rename APK in one robust step
+      - name: Build APK and rename with short commit SHA
+        env:
+          GITHUB_SHA: ${{ github.sha }}
         run: |
           cd android
           ./gradlew clean assembleRelease --no-daemon --warning-mode all
+          APK_PATH=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
           cd ..
-          echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
-          # Rename the APK with commit SHA for artifact and server copy
-          APK_BASENAME=$(basename ${{ env.APK_PATH }})
-          mv ${{ env.APK_PATH }} app-release-${{ env.SHORT_SHA }}.apk
-          echo "RENAMED_APK=app-release-${{ env.SHORT_SHA }}.apk" >> $GITHUB_ENV
+          RENAMED_APK=app-release-${GITHUB_SHA:0:7}.apk
+          mv "$APK_PATH" "$RENAMED_APK"
+          echo "RENAMED_APK=$RENAMED_APK" >> $GITHUB_ENV
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-${{ env.SHORT_SHA }}.apk
+          name: ${{ env.RENAMED_APK }}
           path: ${{ env.RENAMED_APK }}
 
-      # --- 
+      # Use your OpenSSH key as repo secret: SERVER_SSH_KEY
       - name: Add SSH Key
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -67,21 +65,20 @@ jobs:
           SERVER_IP: 45.129.86.68
           SERVER_USER: ubuntu
           RENAMED_APK: ${{ env.RENAMED_APK }}
-          SHORT_SHA: ${{ env.SHORT_SHA }}
         run: |
-          scp -o StrictHostKeyChecking=no $RENAMED_APK $SERVER_USER@$SERVER_IP:/home/ubuntu/app-release-$SHORT_SHA.apk
+          scp -o StrictHostKeyChecking=no $RENAMED_APK $SERVER_USER@$SERVER_IP:/home/ubuntu/$RENAMED_APK
 
       - name: Verify APK location on remote server
         env:
           SERVER_IP: 45.129.86.68
           SERVER_USER: ubuntu
-          SHORT_SHA: ${{ env.SHORT_SHA }}
+          RENAMED_APK: ${{ env.RENAMED_APK }}
         run: |
-          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "ls -lh /home/ubuntu/app-release-$SHORT_SHA.apk && echo '✅ Your APK is located at: /home/ubuntu/app-release-$SHORT_SHA.apk'"
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "ls -lh /home/ubuntu/$RENAMED_APK && echo '✅ Your APK is located at: /home/ubuntu/$RENAMED_APK'"
 
       - name: Print APK SCP Download Instructions
         env:
-          SHORT_SHA: ${{ env.SHORT_SHA }}
+          RENAMED_APK: ${{ env.RENAMED_APK }}
         run: |
           echo "To download your APK, run the following from your desktop terminal:"
-          echo "scp -i /path/to/your/private-key ubuntu@45.129.86.68:/home/ubuntu/app-release-$SHORT_SHA.apk /your/local/folder/"
+          echo "scp -i /path/to/your/private-key ubuntu@45.129.86.68:/home/ubuntu/$RENAMED_APK /your/local/folder/"
