@@ -28,10 +28,9 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    # 3️⃣ Ensure SDK path exists for Gradle
+    # 3️⃣ Create local.properties
     - name: Create local.properties
-      run: |
-        echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+      run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
     # 4️⃣ Install dependencies
     - name: Install dependencies
@@ -41,31 +40,34 @@ jobs:
         npm install -g yarn
         yarn install
 
-    # 5️⃣ Optional: Force Gradle version
+    # 5️⃣ Force Gradle version
     - name: Use Gradle 8.5
       run: |
         cd android
         chmod +x gradlew
         ./gradlew wrapper --gradle-version 8.5
 
-    # 6️⃣ Sync Capacitor plugins (fix missing cordova.variables.gradle)
-    - name: Sync Capacitor Plugins
+    # 6️⃣ Prepare Capacitor Android platform
+    - name: Prepare Capacitor Android
       run: |
-        yarn install
+        chmod +x android/gradlew
+        # Ensure Android platform exists
+        npx cap add android || echo "Android platform already added"
+        # Sync plugins and generate cordova variables
         npx cap sync android
 
-    # 7️⃣ Build Android APK
+    # 7️⃣ Build APK
     - name: Build Android APK
       run: |
         cd android
-        chmod +x gradlew                 # Fix permission
-        ./gradlew clean                  # Clean old builds
+        chmod +x gradlew
+        ./gradlew clean
         ./gradlew assembleRelease --no-daemon --warning-mode all
         cd ..
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
 
     # 8️⃣ Upload APK as artifact
-    - name: Upload APK to GitHub Artifacts
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
@@ -78,7 +80,7 @@ jobs:
         username: ${{ env.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 🔟 Build & push Docker image (tagged with commit ID)
+    # 🔟 Build & push Docker image with commit ID tag
     - name: Build and Push Docker image
       run: |
         COMMIT_ID=$(echo $GITHUB_SHA | cut -c1-7)
@@ -99,46 +101,41 @@ jobs:
         mkdir -p ~/.ssh
         ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
 
-    # 13️⃣ Copy manifests & APK to server
-    - name: Copy manifests & APK to server
+    # 13️⃣ Copy APK and Kubernetes manifests to server
+    - name: Copy APK and manifests
       run: |
         scp -o StrictHostKeyChecking=no \
           ${{ env.SECRET_FILE }} ${{ env.DEPLOYMENT_FILE }} ${{ env.SERVICE_FILE }} \
           ${{ env.APK_PATH }} \
           ubuntu@${{ env.KUBE_SERVER }}:/tmp/
 
-    # 14️⃣ Deploy to MicroK8s & store APK
+    # 14️⃣ Deploy to MicroK8s
     - name: Deploy to MicroK8s
       run: |
         ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
           set -e
-          echo "🚀 Starting MicroK8s deployment..."
           mkdir -p ~/apks
           mv /tmp/*.apk ~/apks/
 
-          echo "📦 Applying Kubernetes resources..."
           microk8s kubectl apply -f /tmp/kube-secret.yaml
           microk8s kubectl apply -f /tmp/deployment.yaml
           microk8s kubectl apply -f /tmp/service.yaml
 
-          echo "⏳ Waiting for deployment rollout..."
           microk8s kubectl rollout status deployment/expense-app-deployment --timeout=300s
 
-          echo "✅ Listing resources..."
           microk8s kubectl get pods -l app=expense-app
           microk8s kubectl get svc
 
-          echo "🧹 Cleaning up temp files..."
           rm -f /tmp/*.yaml
-          echo "📲 APK saved at: /home/ubuntu/apks/"
+          echo "APK saved at ~/apks/"
         EOF
 
-    # 15️⃣ Summary
+    # 15️⃣ Deployment Summary
     - name: Deployment Summary
       run: |
-        echo "🚀 Deployment complete!"
+        echo "🚀 Deployment completed successfully!"
         echo "📦 Image: $IMAGE_TAG"
         echo "🎯 Server: ${{ env.KUBE_SERVER }}"
         echo "📲 APK stored on server at: /home/ubuntu/apks/"
-        echo "➡️ To download to your desktop:"
+        echo "➡️ Download APK with:"
         echo "scp ubuntu@${{ env.KUBE_SERVER }}:/home/ubuntu/apks/*.apk ."
