@@ -35,17 +35,19 @@ jobs:
           chmod +x android/gradlew || true
           npx cap sync android
 
-      # Build, extract, and rename APK in one robust step
-      - name: Build APK and rename with short commit SHA
+      - name: Build APK and robustly rename with commit SHA
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           cd android
           ./gradlew clean assembleRelease --no-daemon --warning-mode all
-          APK_PATH=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
+          echo "APK files present:"
+          ls app/build/outputs/apk/release/
+          APK_PATH=$(ls -t app/build/outputs/apk/release/*.apk | head -n 1)
           cd ..
+          echo "Found APK: $APK_PATH"
           RENAMED_APK=app-release-${GITHUB_SHA:0:7}.apk
-          mv "$APK_PATH" "$RENAMED_APK"
+          cp "$APK_PATH" "$RENAMED_APK"
           echo "RENAMED_APK=$RENAMED_APK" >> $GITHUB_ENV
 
       - name: Upload APK artifact
