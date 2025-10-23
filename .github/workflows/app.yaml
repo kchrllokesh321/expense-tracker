@@ -36,11 +36,11 @@ jobs:
     - name: Install dependencies
       run: yarn install
 
-    # 4️⃣ Build web assets for Capacitor
+    # 4️⃣ Build React web assets
     - name: Build React web assets
       run: yarn build
 
-    # 5️⃣ Capacitor sync
+    # 5️⃣ Capacitor sync Android
     - name: Capacitor sync
       run: |
         chmod +x android/gradlew
@@ -52,14 +52,15 @@ jobs:
         cd android
         ./gradlew clean assembleRelease --no-daemon --warning-mode all
         cd ..
-        # Save APK path as environment variable
+        # Save APK path and short SHA for later use
         echo "APK_PATH=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)" >> $GITHUB_ENV
+        echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
 
-    # 7️⃣ Upload APK artifact with commit SHA
+    # 7️⃣ Upload APK artifact
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: expense-app-apk-${{ github.sha::7 }}
+        name: expense-app-apk-${{ env.SHORT_SHA }}
         path: ${{ env.APK_PATH }}
 
     # 8️⃣ Login to Docker Hub
@@ -69,12 +70,11 @@ jobs:
         username: ${{ env.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 9️⃣ Build and push Docker image with commit SHA
+    # 9️⃣ Build and push Docker image with commit SHA tag
     - name: Build and push Docker image
       run: |
-        IMAGE_TAG=${GITHUB_SHA::7}
-        docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG .
-        docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG
+        docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} .
+        docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
 
     # 🔟 Setup SSH key for deployment
     - name: Setup SSH key
@@ -92,7 +92,7 @@ jobs:
     - name: Deploy to MicroK8s
       run: |
         # Replace image in deployment YAML with new commit-tagged image
-        sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA::7}|g" ${{ env.DEPLOYMENT_FILE }}
+        sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}|g" ${{ env.DEPLOYMENT_FILE }}
 
         # Copy YAMLs to server
         scp -o StrictHostKeyChecking=no ${{ env.SECRET_FILE }} ${{ env.DEPLOYMENT_FILE }} ${{ env.SERVICE_FILE }} ubuntu@${{ env.KUBE_SERVER }}:/tmp/
@@ -107,4 +107,18 @@ jobs:
           echo "Waiting for deployment rollout..."
           microk8s kubectl rollout status deployment/expense-app-deployment --timeout=300s
 
-          echo "Listing pods an
+          echo "Listing pods and services..."
+          microk8s kubectl get pods -l app=expense-app
+          microk8s kubectl get svc expense-app-service
+
+          echo "Cleaning up temporary files..."
+          rm -f /tmp/kube-secret.yaml /tmp/deployment.yaml /tmp/service.yaml
+        EOF
+
+    # 1️⃣3️⃣ Deployment summary
+    - name: Deployment Summary
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "📦 APK path: ${{ env.APK_PATH }}"
+        echo "📦 Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
+        echo "🎯 MicroK8s server: ${{ env.KUBE_SERVER }}"
