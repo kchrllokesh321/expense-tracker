@@ -41,14 +41,13 @@ jobs:
         run: |
           cd android
           ./gradlew clean assembleRelease --no-daemon --warning-mode all
-          echo "APK files present:"
-          ls app/build/outputs/apk/release/
-          APK_PATH=$(ls -t app/build/outputs/apk/release/*.apk | head -n 1)
-          cd ..
-          echo "Found APK: $APK_PATH"
-          RENAMED_APK=app-release-${GITHUB_SHA:0:7}.apk
-          cp "$APK_PATH" "$RENAMED_APK"
-          echo "RENAMED_APK=$RENAMED_APK" >> $GITHUB_ENV
+           echo "APK files present:"
+           ls app/build/outputs/apk/release/
+           APK_PATH=$(ls -t app/build/outputs/apk/release/*.apk | head -n 1)
+           RENAMED_APK=app-release-${GITHUB_SHA:0:7}.apk
+           cp "$APK_PATH" "../$RENAMED_APK"
+            cd ..
+            echo "RENAMED_APK=$RENAMED_APK" >> $GITHUB_ENV
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
