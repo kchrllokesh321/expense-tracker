@@ -15,10 +15,10 @@ spec:
         app: expense-app
     spec:
       imagePullSecrets:
-        - name: kube-secret   # 👈 must be here (same level as containers)
+        - name: dockerhub-secret
       containers:
         - name: expense-app
-          image: lokesh86186/react:v1
+          image: lokesh86186/react:latest
           ports:
             - containerPort: 80
               
