@@ -1,0 +1,85 @@
+name: Build and Deploy to MicroK8s
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  DOCKER_USERNAME: lokesh86186
+  IMAGE_NAME: react
+  KUBE_SERVER: 45.129.86.68
+  DEPLOYMENT_NAME: react-deployment
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1️⃣ Checkout repo
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2️⃣ Login to Docker Hub
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # 3️⃣ Build and push Docker image
+    - name: Build and push Docker image
+      run: |
+        docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest .
+        docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+
+    # 4️⃣ Setup SSH key for deployment
+    - name: Setup SSH key
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    # 5️⃣ Add server to known hosts
+    - name: Add server to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ env.KUBE_SERVER }} >> ~/.ssh/known_hosts
+
+    # 🧩 NEW STEP — Test SSH Connection
+    - name: Test SSH connection to server
+      run: |
+        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} "echo '✅ SSH connection successful!'"
+
+    # 6️⃣ Deploy to MicroK8s
+    - name: Deploy to MicroK8s
+      run: |
+        # Update deployment image
+        sed -i "s|image:.*|image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest|g" deployment.yaml
+        
+        # Copy YAMLs to server
+        scp -o StrictHostKeyChecking=no kube-secret.yaml deployment.yaml service.yaml ubuntu@${{ env.KUBE_SERVER }}:/tmp/
+
+        # Apply resources
+        ssh -o StrictHostKeyChecking=no ubuntu@${{ env.KUBE_SERVER }} << 'EOF'
+          echo "Applying Kubernetes manifests..."
+          microk8s kubectl apply -f /tmp/kube-secret.yaml
+          microk8s kubectl apply -f /tmp/deployment.yaml
+          microk8s kubectl apply -f /tmp/service.yaml
+          
+          echo "Waiting for deployment rollout..."
+          microk8s kubectl rollout status deployment/react-deployment --timeout=300s
+          
+          echo "Listing pods and services..."
+          microk8s kubectl get pods -l app=react-app
+          microk8s kubectl get svc react-service
+          
+          echo "Cleaning up temporary files..."
+          rm -f /tmp/secret.yaml /tmp/deployment.yaml /tmp/service.yaml
+        EOF
+
+    # 7️⃣ Deployment summary
+    - name: Deployment Summary
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "📦 Image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
+        echo "🎯 Server: ${{ env.KUBE_SERVER }}"
