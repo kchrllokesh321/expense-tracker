@@ -1,0 +1,86 @@
+name: Build and Copy Debug APK to Server
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🧾 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: ☕ Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: 📦 Install dependencies
+        run: yarn install
+
+      - name: 🏗️ Build web assets
+        run: yarn build
+
+      - name: 🔄 Capacitor sync Android
+        run: |
+          chmod +x android/gradlew || true
+          npx cap sync android
+
+      - name: 📱 Build Debug APK and rename with commit SHA
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          cd android
+          ./gradlew clean assembleDebug --no-daemon --warning-mode all
+          echo "✅ APK files generated:"
+          ls app/build/outputs/apk/debug/
+          APK_PATH=$(ls -t app/build/outputs/apk/debug/*.apk | head -n 1)
+          RENAMED_APK=app-debug-${GITHUB_SHA:0:7}.apk
+          cp "$APK_PATH" "../$RENAMED_APK"
+          cd ..
+          echo "RENAMED_APK=$RENAMED_APK" >> $GITHUB_ENV
+
+      - name: 📤 Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RENAMED_APK }}
+          path: ${{ env.RENAMED_APK }}
+
+      - name: 🔐 Add SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: 🚀 Copy APK to remote server
+        env:
+          SERVER_IP: 45.129.86.68
+          SERVER_USER: ubuntu
+          RENAMED_APK: ${{ env.RENAMED_APK }}
+        run: |
+          scp -o StrictHostKeyChecking=no $RENAMED_APK $SERVER_USER@$SERVER_IP:/home/ubuntu/$RENAMED_APK
+
+      - name: 🔍 Verify APK location on server
+        env:
+          SERVER_IP: 45.129.86.68
+          SERVER_USER: ubuntu
+          RENAMED_APK: ${{ env.RENAMED_APK }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "ls -lh /home/ubuntu/$RENAMED_APK && echo '✅ APK available at: /home/ubuntu/$RENAMED_APK'"
+
+      - name: 💡 Print download instructions
+        env:
+          RENAMED_APK: ${{ env.RENAMED_APK }}
+        run: |
+          echo "To download your debug APK, run this from your local terminal:"
+          echo "scp -i /path/to/your/private-key ubuntu@45.129.86.68:/home/ubuntu/$RENAMED_APK ./"
+          echo ""
+          echo "Then send it to your phone and install — no Play Store needed 🎉"
